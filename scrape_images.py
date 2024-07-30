@@ -21,17 +21,21 @@ def list_all_files_in_dir(directory: str) -> list[str]:
 
 def scrape_all_images(aon_version: str) -> None:
     output_dir = os.path.join('aon-data', aon_version)
-    json_files = [os.path.join(output_dir, file) for file in os.listdir(output_dir) if file.endswith('.json')]
+    json_files = list_all_json_files(output_dir)
 
     if len(json_files) == 0:
         print(f'No JSON files found in {output_dir}. Scraping from AON.')
         get_all_aon_json_data_and_save(aon_version, False)
+        json_files = list_all_json_files(output_dir)
         
     for file in json_files:
         with open(file) as f:
             data = json.load(f)
             for item in data:
-                get_webp_file_and_save(item, output_dir)    
+                get_webp_file_and_save(item, output_dir) 
+
+def list_all_json_files(output_dir):
+    return [os.path.join(output_dir, file) for file in os.listdir(output_dir) if file.endswith('.json')]   
 
 def main():
     args = parse_args()
