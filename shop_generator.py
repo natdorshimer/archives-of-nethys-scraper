@@ -1,8 +1,11 @@
 import argparse
 import json
 import math
+import pandas as pd
 import random
+
 from collections import defaultdict
+from dacite import from_dict
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -33,10 +36,10 @@ class TraitRequest:
 
 @dataclass(frozen=True)
 class RarityRequest:
-    common_number: int = 0
-    uncommon_number: int = 0
-    rare_number: int = 0
-    unique_number: int = 0
+    common_number: int
+    uncommon_number: int
+    rare_number: int
+    unique_number: int
 
 
 @dataclass(frozen=True)
@@ -44,8 +47,6 @@ class SearchRequest:
     rarity_request: RarityRequest
     traits: TraitRequest
     level_request: LevelRequest
-    source: str | None = None
-
 
 class ShopType(Enum):
     POTION = 'potion'
@@ -53,7 +54,6 @@ class ShopType(Enum):
     POISON = 'poison'
     WEAPON = 'weapon'
     ANY = 'any'
-
 
 traits_by_shop_type: dict[ShopType, TraitRequest] = {
     ShopType.POTION: TraitRequest(required_traits=['Potion', 'Consumable']),
@@ -64,6 +64,7 @@ traits_by_shop_type: dict[ShopType, TraitRequest] = {
 }
 
 
+
 @dataclass(frozen=True)
 class ShopRequest:
     shop_type: ShopType
@@ -71,15 +72,21 @@ class ShopRequest:
     rarity_request: RarityRequest
     decay: float = 0.5
 
-
-type AonItemJson = AonItemJson
-
+@dataclass
+class AonItemJson:
+    name: str
+    rarity: str
+    level: int
+    url: str
+    category: str
+    price_raw: str = ''
+    source: list[str] = field(default_factory=list)
+    trait: list[str] = field(default_factory=list)
 
 def load_equipment_by_category(category: str) -> list[AonItemJson]:
     with open(f'aon-data/aon39/{category}.json') as f:
         equipment = json.load(f)
-        return equipment
-
+        return [from_dict(AonItemJson, item) for item in equipment]
 
 def load_equipment(categories: list[str]) -> list[AonItemJson]:
     items = []
@@ -94,17 +101,14 @@ def any_from_list_is_in_list(list1: list[str], list2: list[str]) -> bool:
 
 def get_random_items(search_request: SearchRequest) -> list[AonItemJson]:
     equipment = load_equipment(search_request.traits.categories)
-    items = [item for item in equipment if any_from_list_is_in_list(item['source'], sources)]
-    if search_request.source:
-        items = [item for item in items if item['source'] == search_request.source]
+    items = [item for item in equipment if any_from_list_is_in_list(item.source, sources)]
     items = [item for item in items if
-             len(search_request.traits.required_traits) == 0 or 'trait' in item and any_from_list_is_in_list(
-                 item['trait'], search_request.traits.required_traits)]
-    items = [item for item in items if
-             'trait' in item and not any_from_list_is_in_list(item['trait'], search_request.traits.exclude_traits)]
+             len(search_request.traits.required_traits) == 0 or any_from_list_is_in_list(
+                 item.trait, search_request.traits.required_traits)]
+    items = [item for item in items if not any_from_list_is_in_list(item.trait, search_request.traits.exclude_traits)]
 
     for item in items:
-        item['url'] = f"https://2e.aonprd.com{item['url']}"
+        item.url = f"https://2e.aonprd.com{item.url}"
 
     return choose_items_by_level_and_rarity(items, search_request)
 
@@ -113,8 +117,8 @@ def choose_items_by_level_and_rarity(items: list[AonItemJson], search_request: S
     items_by_rarity_by_level: dict[str, dict[int, list[AonItemJson]]] = defaultdict(lambda: defaultdict(list))
 
     for item in items:
-        level = item['level']
-        rarity = item['rarity']
+        level = item.level
+        rarity = item.rarity
         items_by_level = items_by_rarity_by_level[rarity]
         items_by_level[level].append(item)
 
@@ -146,30 +150,10 @@ def choose_items_by_level_and_rarity(items: list[AonItemJson], search_request: S
 
     return final_items
 
-
-def to_str(item: AonItemJson) -> str:
-    return f"{item['name']} ({item['level']}) {item['category']} {item['source']}"
-
-
-def to_str_with_headers_and_equal_spacing_per_column(items: list[AonItemJson], keys: list[str]) -> str:
-    max_lengths = {header: len(header) for header in keys}
-    for item in items:
-        for key in max_lengths:
-            if key in item:
-                max_lengths[key] = max(max_lengths[key], len(str(item[key])))
-
-    result = ''
-    for header in max_lengths:
-        result += header.ljust(max_lengths[header]) + ' '
-    result += '\n'
-
-    for item in items:
-        for key in max_lengths:
-            value = item[key] if key in item else ''
-            result += str(value).ljust(max_lengths[key]) + ' '
-        result += '\n'
-
-    return result
+def to_table_str(items: list[AonItemJson], keys: list[str]) -> str:
+    data = [{key: getattr(item, key, "") for key in keys} for item in items]
+    df = pd.DataFrame(data, columns=keys)
+    return df.to_string(index=False)
 
 
 def parse_args() -> ShopRequest:
@@ -178,7 +162,7 @@ def parse_args() -> ShopRequest:
         '--type',
         type=str,
         help='Shop type',
-        default=ShopType.ANY.value,
+        default=ShopType.POTION.value,
         choices=[shop_type.value for shop_type in ShopType],
     )
 
@@ -241,8 +225,7 @@ def generate_shop(shop_request: ShopRequest) -> str:
     items = get_random_items(generate_shop_by_type(shop_request))
 
     fields = ['name', 'rarity', 'level', 'source', 'price_raw', 'url']
-    return to_str_with_headers_and_equal_spacing_per_column(items, fields)
-
+    return to_table_str(items, fields)
 
 if __name__ == '__main__':
     main()
