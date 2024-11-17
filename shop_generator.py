@@ -219,7 +219,6 @@ def generate_shop_item_weights(shop_level, max_level=30, decay=0.5) -> dict[int,
         elif level == shop_level + 2:
             weights[level] = 0.05
 
-    print(weights)
     return weights
 
 
