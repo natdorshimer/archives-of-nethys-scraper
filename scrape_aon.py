@@ -1,10 +1,10 @@
+import argparse
+import json
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 
-import json
-import os
 import requests
-import argparse
 
 
 def main() -> None:

@@ -1,5 +1,4 @@
 import random
-from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -60,6 +59,7 @@ class ItemWithRunesSearchRequest:
 class GeneralSearchRequest:
     equipment_search_request: EquipmentSearchRequest
     item_with_runes_search_request: ItemWithRunesSearchRequest
+
 
 @dataclass(frozen=True)
 class _ItemWithRunes:
@@ -122,18 +122,20 @@ class SearchService:
 
     def _get_random_equipment(self, search_request: EquipmentSearchRequest) -> list[AonItemJson]:
         equipment = self.aon_item_loader.load_items_by_categories(search_request.traits.categories)
-        items = [item for item in equipment if _any_from_list_is_in_list(item.source, sources)]
+        items = [item for item in equipment if _any_from_list_is_in_list(item.source, self.sources)]
         items = [item for item in items if
                  len(search_request.traits.required_traits) == 0 or _any_from_list_is_in_list(
                      item.trait, search_request.traits.required_traits)]
-        items = [item for item in items if not _any_from_list_is_in_list(item.trait, search_request.traits.exclude_traits)]
+        items = [item for item in items if
+                 not _any_from_list_is_in_list(item.trait, search_request.traits.exclude_traits)]
 
         for item in items:
             item.url = f"https://2e.aonprd.com{item.url}"
 
         return _choose_items_by_level_and_rarity(items, search_request)
 
-    def _generate_items_with_runes(self, search_request: ItemWithRunesSearchRequest, item_type_data: ItemTypeData) -> list[
+    def _generate_items_with_runes(self, search_request: ItemWithRunesSearchRequest, item_type_data: ItemTypeData) -> \
+    list[
         ItemOutputData]:
         equipment = self.aon_item_loader.load_items_by_category('equipment')
         weapons = self.aon_item_loader.load_items_by_category(item_type_data.potency_name.lower())
@@ -169,12 +171,14 @@ class SearchService:
 
         def generate_item_with_runes() -> ItemOutputData:
             item_potency_rune = _get_random_item(item_potency_level_to_item, search_request.level_request)
-            potency_rank = int(_get_item_potency_by_name(item_potency_rune.name)) if item_potency_rune is not None else 0
+            potency_rank = int(
+                _get_item_potency_by_name(item_potency_rune.name)) if item_potency_rune is not None else 0
             item_strength_rune = _get_random_item(item_striking_level_to_item, search_request.level_request)
 
             item_property_runes_i = [
                 rune for _ in range(random.randrange(0, potency_rank + 1))
-                if (rune := _get_random_item(item_property_runes_level_to_items, search_request.level_request)) is not None
+                if
+                (rune := _get_random_item(item_property_runes_level_to_items, search_request.level_request)) is not None
             ]
 
             weapon_with_runes = _ItemWithRunes(
@@ -193,17 +197,19 @@ class SearchService:
 
         return [generate_item_with_runes() for _ in range(item_type_data.amount)]
 
-
-    def _generate_armor_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[ItemOutputData]:
+    def _generate_armor_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[
+        ItemOutputData]:
         return self._generate_items_with_runes(search_request, ItemTypeData('Armor', 'Resilient', search_request.armor))
 
-
-    def _generate_weapon_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[ItemOutputData]:
-        return self._generate_items_with_runes(search_request, ItemTypeData('Weapon', 'Striking', search_request.weapons))
+    def _generate_weapon_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[
+        ItemOutputData]:
+        return self._generate_items_with_runes(search_request,
+                                               ItemTypeData('Weapon', 'Striking', search_request.weapons))
 
 
 def _get_item_potency_by_name(name: str) -> str:
     return name.split(' ')[-1][1:3]
+
 
 def _get_cost_in_cp(price: str) -> int:
     mappings = {
@@ -217,6 +223,7 @@ def _get_cost_in_cp(price: str) -> int:
     price_split = price.split(', ')
     return sum([int(price_split[i].split(' ')[0].replace(',', '')) * mappings[price_split[i].split(' ')[1]] for i in
                 range(len(price_split))])
+
 
 def _get_item_strength_by_name(name: str, postfix="Striking") -> str:
     if 'Greater' in name:

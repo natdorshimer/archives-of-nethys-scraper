@@ -6,7 +6,7 @@ from enum import Enum
 import pandas as pd
 
 from aon_item_loader import AonItemJson, LocalFileAonItemLoader
-from search_request import TraitRequest, RarityRequest, EquipmentSearchRequest, LevelRequest, \
+from search_service import TraitRequest, RarityRequest, EquipmentSearchRequest, LevelRequest, \
     ItemWithRunesSearchRequest, SearchService
 
 
