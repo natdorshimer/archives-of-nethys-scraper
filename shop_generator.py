@@ -5,9 +5,29 @@ from enum import Enum
 
 import pandas as pd
 
-from aon_util import AonItemJson
+from aon_item_loader import AonItemJson, LocalFileAonItemLoader
 from search_request import TraitRequest, RarityRequest, EquipmentSearchRequest, LevelRequest, \
-    ItemWithRunesSearchRequest, get_random_items_by_request
+    ItemWithRunesSearchRequest, SearchService
+
+
+def main():
+    shop_request = parse_args()
+    sources = [
+        "Treasure Vault",
+        "GM Core",
+        "Player Core",
+        "Monster Core",
+        "Secrets of Magic",
+        "Rage of Elements",
+        "Guns & Gears",
+        "Gods & Magic",
+        "Book of the Dead",
+        "Grand Bazaar"
+    ]
+
+    search_service = SearchService(LocalFileAonItemLoader(), sources)
+    items = search_service.get_random_items_by_request(generate_shop_by_type(shop_request))
+    print(display_as_table_str(items))
 
 
 class ShopType(Enum):
@@ -69,9 +89,7 @@ def parse_args() -> ShopRequest:
     )
 
 
-def generate_shop(shop_request: ShopRequest) -> str:
-    items = get_random_items_by_request(generate_shop_by_type(shop_request))
-
+def display_as_table_str(items: list[AonItemJson]):
     fields = ['name', 'rarity', 'level', 'source', 'price_raw', 'url']
     return to_table_str(items, fields)
 
@@ -116,11 +134,6 @@ def generate_item_with_runes_search_request(shop_request: ShopRequest) -> ItemWi
         weapons=10 if shop_request.shop_type == ShopType.WEAPON else 0,
         armor=10 if shop_request.shop_type == ShopType.ARMOR else 0
     )
-
-
-def main():
-    shop_request = parse_args()
-    print(generate_shop(shop_request))
 
 
 def to_table_str(items: list[AonItemJson], keys: list[str]) -> str:
