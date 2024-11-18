@@ -57,8 +57,8 @@ class ItemWithRunesSearchRequest:
 
 @dataclass(frozen=True)
 class GeneralSearchRequest:
-    equipment_search_request: EquipmentSearchRequest
-    item_with_runes_search_request: ItemWithRunesSearchRequest
+    equipment_search_request: EquipmentSearchRequest | None
+    item_with_runes_search_request: ItemWithRunesSearchRequest | None
 
 
 @dataclass(frozen=True)
@@ -109,15 +109,17 @@ class SearchService:
     aon_item_loader: AonItemLoader
     sources: list[str]
 
-    def get_random_items_by_request(
-        self, search_request: EquipmentSearchRequest | ItemWithRunesSearchRequest
-    ) -> list[ItemOutputData] | list[AonItemJson]:
-        if isinstance(search_request, EquipmentSearchRequest):
-            return self._get_random_equipment(search_request)
-
+    def get_random_items_by_request(self, general_search_request: GeneralSearchRequest):
         result = []
-        result.extend(self._generate_weapon_runes_based_on_request(search_request))
-        result.extend(self._generate_armor_runes_based_on_request(search_request))
+        if general_search_request.equipment_search_request is not None:
+            result.extend(self._get_random_equipment(general_search_request.equipment_search_request))
+
+        if general_search_request.item_with_runes_search_request is not None:
+            result.extend(
+                self._generate_weapon_runes_based_on_request(general_search_request.item_with_runes_search_request))
+            result.extend(
+                self._generate_armor_runes_based_on_request(general_search_request.item_with_runes_search_request))
+
         return result
 
     def _get_random_equipment(self, search_request: EquipmentSearchRequest) -> list[AonItemJson]:
@@ -135,8 +137,8 @@ class SearchService:
         return _choose_items_by_level_and_rarity(items, search_request)
 
     def _generate_items_with_runes(self, search_request: ItemWithRunesSearchRequest, item_type_data: ItemTypeData) -> \
-    list[
-        ItemOutputData]:
+        list[
+            ItemOutputData]:
         equipment = self.aon_item_loader.load_items_by_category('equipment')
         weapons = self.aon_item_loader.load_items_by_category(item_type_data.potency_name.lower())
 

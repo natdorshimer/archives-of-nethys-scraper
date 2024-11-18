@@ -39,9 +39,14 @@ class AonItemLoader(ABC):
 
 class LocalFileAonItemLoader(AonItemLoader):
     def load_items_by_category(self, category: str) -> list[AonItemJson]:
-        with open(f'aon-data/aon39/{category}.json') as f:
-            equipment = json.load(f)
-            return [from_dict(AonItemJson, item) for item in equipment]
+        try:
+            with open(f'aon-data/aon39/{category}.json') as f:
+                equipment = json.load(f)
+                return [from_dict(AonItemJson, item) for item in equipment]
+        except FileNotFoundError as e:
+            print("File not found - AON data is likely not scraped. Run scrape_aon.py")
+            raise e
+
 
 
 def load_items_by_category(category: str) -> list[AonItemJson]:

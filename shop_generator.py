@@ -7,7 +7,7 @@ import pandas as pd
 
 from aon_item_loader import AonItemJson, LocalFileAonItemLoader
 from search_service import TraitRequest, RarityRequest, EquipmentSearchRequest, LevelRequest, \
-    ItemWithRunesSearchRequest, SearchService
+    ItemWithRunesSearchRequest, SearchService, GeneralSearchRequest
 
 
 def main():
@@ -26,7 +26,8 @@ def main():
     ]
 
     search_service = SearchService(LocalFileAonItemLoader(), sources)
-    items = search_service.get_random_items_by_request(generate_shop_by_type(shop_request))
+    search_request = create_search_request(shop_request)
+    items = search_service.get_random_items_by_request(search_request)
     print(display_as_table_str(items))
 
 
@@ -37,9 +38,74 @@ class ShopType(Enum):
     WEAPON = 'weapon'
     ARMOR = 'armor'
     ANY = 'any'
+    BLACKSMITH = 'blacksmith'
+    BLACKSMITH_MAGIC = 'blacksmith-magic'
 
     def has_items_with_runes(self) -> bool:
         return self == ShopType.WEAPON or self == ShopType.ARMOR
+
+
+@dataclass
+class EquipmentShopInfo:
+    traits_by_shop_type: TraitRequest
+
+
+@dataclass
+class ItemWithRunesShopInfo:
+    weapon_to_armor_proportion: float = 0.5
+
+
+@dataclass(frozen=True)
+class Shop:
+    equipment_shop_info: EquipmentShopInfo | None = None
+    item_with_runes_shop_info: ItemWithRunesShopInfo | None = None
+
+    def has_items_with_runes(self) -> bool:
+        return self.item_with_runes_shop_info is not None
+
+    def has_equipment(self) -> bool:
+        return self.equipment_shop_info is not None
+
+
+shop_by_shop_type = {
+    ShopType.POTION: Shop(
+        equipment_shop_info=EquipmentShopInfo(
+            traits_by_shop_type=TraitRequest(required_traits=['Potion', 'Consumable'])
+        )
+    ),
+    ShopType.ARTIFACT: Shop(
+        equipment_shop_info=EquipmentShopInfo(
+            traits_by_shop_type=TraitRequest(required_traits=['Magical'], exclude_traits=['Consumable', 'Tattoo'])
+        )
+    ),
+    ShopType.POISON: Shop(
+        equipment_shop_info=EquipmentShopInfo(
+            traits_by_shop_type=TraitRequest(required_traits=['Poison', 'Consumable'])
+        )
+    ),
+    ShopType.WEAPON: Shop(
+        item_with_runes_shop_info=ItemWithRunesShopInfo(weapon_to_armor_proportion=1.0)
+    ),
+    ShopType.ARMOR: Shop(
+        item_with_runes_shop_info=ItemWithRunesShopInfo(weapon_to_armor_proportion=0)
+    ),
+    ShopType.ANY: Shop(
+        equipment_shop_info=EquipmentShopInfo(
+            traits_by_shop_type=TraitRequest(categories=['equipment', 'weapon', 'armor'])
+        ),
+        item_with_runes_shop_info=ItemWithRunesShopInfo()
+    ),
+    ShopType.BLACKSMITH: Shop(
+        equipment_shop_info=EquipmentShopInfo(
+            traits_by_shop_type=TraitRequest(categories=['weapon', 'armor'])
+        )
+    ),
+    ShopType.BLACKSMITH_MAGIC: Shop(
+        item_with_runes_shop_info=ItemWithRunesShopInfo(
+            weapon_to_armor_proportion=0.5
+        )
+    )
+}
 
 
 @dataclass(frozen=True)
@@ -47,6 +113,7 @@ class ShopRequest:
     shop_type: ShopType
     level: int
     rarity_request: RarityRequest
+    number: int
     decay: float = 0.5
 
 
@@ -75,11 +142,13 @@ def parse_args() -> ShopRequest:
     parser.add_argument('--rare', type=int, help='Number of rare items', default=1)
     parser.add_argument('--unique', type=int, help='Number of unique items', default=0)
     parser.add_argument('--decay', type=float, help='Decay for item level', default=0.5)
+    parser.add_argument('--number', type=int, help='Number of items for weapons and armor', default=10)
     args = parser.parse_args()
 
     return ShopRequest(
         shop_type=ShopType(args.type),
         level=args.level,
+        number=args.number,
         rarity_request=RarityRequest(
             common_number=args.common,
             uncommon_number=args.uncommon,
@@ -87,6 +156,36 @@ def parse_args() -> ShopRequest:
             unique_number=args.unique
         )
     )
+
+
+def create_search_request(shop_request: ShopRequest) -> GeneralSearchRequest:
+    shop: Shop = shop_by_shop_type[shop_request.shop_type]
+
+    equipment_search_request = None
+    if shop.has_equipment():
+        equipment_search_request = EquipmentSearchRequest(
+            traits=shop.equipment_shop_info.traits_by_shop_type,
+            level_request=LevelRequest(
+                weights=generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
+            ),
+            rarity_request=shop_request.rarity_request
+        )
+
+    item_with_runes_search_request = None
+    if shop.has_items_with_runes():
+        weapon_to_armor_proportion = shop.item_with_runes_shop_info.weapon_to_armor_proportion
+        weapons = int(shop_request.number * weapon_to_armor_proportion)
+        armor = int(shop_request.number * (1 - weapon_to_armor_proportion))
+
+        item_with_runes_search_request = ItemWithRunesSearchRequest(
+            level_request=LevelRequest(
+                weights=generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
+            ),
+            weapons=weapons,
+            armor=armor
+        )
+
+    return GeneralSearchRequest(equipment_search_request, item_with_runes_search_request)
 
 
 def display_as_table_str(items: list[AonItemJson]):
@@ -106,34 +205,6 @@ def generate_shop_item_weights(shop_level, max_level=30, decay=0.5) -> dict[int,
             weights[level] = 0.05
 
     return weights
-
-
-def generate_shop_by_type(shop_request: ShopRequest) -> EquipmentSearchRequest | ItemWithRunesSearchRequest:
-    if shop_request.shop_type.has_items_with_runes():
-        return generate_item_with_runes_search_request(shop_request)
-
-    return EquipmentSearchRequest(
-        traits=traits_by_shop_type[shop_request.shop_type],
-        level_request=LevelRequest(
-            weights=generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
-        ),
-        rarity_request=RarityRequest(
-            common_number=shop_request.rarity_request.common_number,
-            uncommon_number=shop_request.rarity_request.uncommon_number,
-            rare_number=shop_request.rarity_request.rare_number,
-            unique_number=shop_request.rarity_request.unique_number
-        )
-    )
-
-
-def generate_item_with_runes_search_request(shop_request: ShopRequest) -> ItemWithRunesSearchRequest:
-    return ItemWithRunesSearchRequest(
-        level_request=LevelRequest(
-            weights=generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
-        ),
-        weapons=10 if shop_request.shop_type == ShopType.WEAPON else 0,
-        armor=10 if shop_request.shop_type == ShopType.ARMOR else 0
-    )
 
 
 def to_table_str(items: list[AonItemJson], keys: list[str]) -> str:
