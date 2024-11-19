@@ -28,7 +28,7 @@ def main():
     search_service = SearchService(LocalFileAonItemLoader(), sources)
     search_request = create_search_request(shop_request)
     items = search_service.get_random_items_by_request(search_request)
-    print(display_as_table_str(items))
+    print(_display_as_table_str(items))
 
 
 class ShopType(Enum):
@@ -154,20 +154,21 @@ def parse_args() -> ShopRequest:
             uncommon_number=args.uncommon,
             rare_number=args.rare,
             unique_number=args.unique
-        )
+        ),
+        decay=args.decay
     )
 
 
 def create_search_request(shop_request: ShopRequest) -> GeneralSearchRequest:
     shop: Shop = shop_by_shop_type[shop_request.shop_type]
 
+    weights = _generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
+
     equipment_search_request = None
     if shop.has_equipment():
         equipment_search_request = EquipmentSearchRequest(
             traits=shop.equipment_shop_info.traits_by_shop_type,
-            level_request=LevelRequest(
-                weights=generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
-            ),
+            level_request=LevelRequest(weights),
             rarity_request=shop_request.rarity_request
         )
 
@@ -178,9 +179,7 @@ def create_search_request(shop_request: ShopRequest) -> GeneralSearchRequest:
         armor = int(shop_request.number * (1 - weapon_to_armor_proportion))
 
         item_with_runes_search_request = ItemWithRunesSearchRequest(
-            level_request=LevelRequest(
-                weights=generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
-            ),
+            level_request=LevelRequest(weights),
             weapons=weapons,
             armor=armor
         )
@@ -188,12 +187,12 @@ def create_search_request(shop_request: ShopRequest) -> GeneralSearchRequest:
     return GeneralSearchRequest(equipment_search_request, item_with_runes_search_request)
 
 
-def display_as_table_str(items: list[AonItemJson]):
+def _display_as_table_str(items: list[AonItemJson]):
     fields = ['name', 'rarity', 'level', 'source', 'price_raw', 'url']
-    return to_table_str(items, fields)
+    return _to_table_str(items, fields)
 
 
-def generate_shop_item_weights(shop_level, max_level=30, decay=0.5) -> dict[int, float]:
+def _generate_shop_item_weights(shop_level, max_level=30, decay=0.5) -> dict[int, float]:
     weights = {}
 
     for level in range(max_level + 1):
@@ -207,7 +206,7 @@ def generate_shop_item_weights(shop_level, max_level=30, decay=0.5) -> dict[int,
     return weights
 
 
-def to_table_str(items: list[AonItemJson], keys: list[str]) -> str:
+def _to_table_str(items: list[AonItemJson], keys: list[str]) -> str:
     data = [{key: getattr(item, key, "") for key in keys} for item in items]
     df = pd.DataFrame(data, columns=keys)
     return df.to_string(index=False)
