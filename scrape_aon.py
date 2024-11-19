@@ -94,7 +94,7 @@ def get_all_aon_json_data_and_save(version: str, retrieve_all_revisions: bool) -
                                                                                           retrieve_all_revisions)
 
     for category, items in item_by_category.items():
-        with open(f"{output_dir}/{category}.json", 'w') as f:
+        with open(os.path.join(output_dir, f'{category}.json'), 'w') as f:
             json.dump(items, f, indent=2)
 
 
