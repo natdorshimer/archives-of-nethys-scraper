@@ -9,6 +9,7 @@ from aon_item_loader import AonItemJson, LocalFileAonItemLoader
 from search_service import TraitRequest, RarityRequest, EquipmentSearchRequest, LevelRequest, \
     ItemWithRunesSearchRequest, SearchService, GeneralSearchRequest
 
+DEFAULT_DECAY = 0.5
 
 def main():
     shop_request = parse_args()
@@ -59,6 +60,7 @@ class ItemWithRunesShopInfo:
 class Shop:
     equipment_shop_info: EquipmentShopInfo | None = None
     item_with_runes_shop_info: ItemWithRunesShopInfo | None = None
+    decay: float = DEFAULT_DECAY
 
     def has_items_with_runes(self) -> bool:
         return self.item_with_runes_shop_info is not None
@@ -75,8 +77,9 @@ shop_by_shop_type = {
     ),
     ShopType.ARTIFACT: Shop(
         equipment_shop_info=EquipmentShopInfo(
-            traits_by_shop_type=TraitRequest(required_traits=['Magical'], exclude_traits=['Consumable', 'Tattoo'])
-        )
+            traits_by_shop_type=TraitRequest(required_traits=['Magical'], exclude_traits=['Consumable', 'Tattoo']),
+        ),
+        decay = 0.2
     ),
     ShopType.POISON: Shop(
         equipment_shop_info=EquipmentShopInfo(
@@ -114,7 +117,7 @@ class ShopRequest:
     level: int
     rarity_request: RarityRequest
     number: int
-    decay: float = 0.5
+    decay: float | None
 
 
 traits_by_shop_type: dict[ShopType, TraitRequest] = {
@@ -141,7 +144,7 @@ def parse_args() -> ShopRequest:
     parser.add_argument('--uncommon', type=int, help='Number of uncommon items', default=3)
     parser.add_argument('--rare', type=int, help='Number of rare items', default=1)
     parser.add_argument('--unique', type=int, help='Number of unique items', default=0)
-    parser.add_argument('--decay', type=float, help='Decay for item level', default=0.5)
+    parser.add_argument('--decay', type=float, help='Decay for item level', default=None)
     parser.add_argument('--number', type=int, help='Number of items for weapons and armor', default=10)
     args = parser.parse_args()
 
@@ -161,8 +164,7 @@ def parse_args() -> ShopRequest:
 
 def create_search_request(shop_request: ShopRequest) -> GeneralSearchRequest:
     shop: Shop = shop_by_shop_type[shop_request.shop_type]
-
-    weights = _generate_shop_item_weights(shop_request.level, decay=shop_request.decay)
+    weights = _generate_shop_item_weights(shop_request.level, decay=shop_request.decay or shop.decay)
 
     equipment_search_request = None
     if shop.has_equipment():

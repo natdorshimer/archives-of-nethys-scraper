@@ -148,24 +148,21 @@ class SearchService:
         equipment = self.aon_item_loader.load_items_by_category('equipment')
         weapons = self.aon_item_loader.load_items_by_category(item_type_data.potency_name.lower())
 
-        item_potency = {
-            1: next(filter(lambda item: item.name == f'{item_type_data.potency_name} Potency (+1)', equipment)),
-            2: next(filter(lambda item: item.name == f'{item_type_data.potency_name} Potency (+2)', equipment)),
-            3: next(filter(lambda item: item.name == f'{item_type_data.potency_name} Potency (+3)', equipment))
-        }
+        potency_postfixes = [ f'{item_type_data.potency_name} Potency (+{i})' for i in range(1, 4) ]
 
-        item_strength = {
-            1: next(filter(lambda item: item.name == f'{item_type_data.strength_name}', equipment)),
-            2: next(filter(lambda item: item.name == f'{item_type_data.strength_name} (Greater)', equipment)),
-            3: next(filter(lambda item: item.name == f'{item_type_data.strength_name} (Major)', equipment))
-        }
+        get_striking_name_by_rank = lambda postfix: f'{item_type_data.strength_name}{ f' ({postfix})' if postfix is not None else '' }'
+        rank_postfix = [None, 'Greater', 'Major']
+        strength_postfixes = list(map(get_striking_name_by_rank, rank_postfix))
+
+        item_potency = [ next(filter(lambda item: item.name == postfix, equipment)) for postfix in potency_postfixes ]
+        item_strength = [ next(filter(lambda item: item.name == postfix, equipment)) for postfix in strength_postfixes ]
 
         item_potency_level_to_item: dict[int, list[AonItemJson]] = {0: []}
-        for item in item_potency.values():
+        for item in item_potency:
             item_potency_level_to_item[item.level] = [item]
 
         item_striking_level_to_item: dict[int, list[AonItemJson]] = {0: []}
-        for item in item_strength.values():
+        for item in item_strength:
             item_striking_level_to_item[item.level] = [item]
 
         item_property_runes = [item for item in equipment if
@@ -185,7 +182,11 @@ class SearchService:
             item_type_data
         )
 
-    def _generate_items_with_runes(self, item_type_data: ItemTypeData, search_request: ItemWithRunesSearchRequest) -> list[ItemOutputData]:
+    def _generate_items_with_runes(
+        self,
+        item_type_data: ItemTypeData,
+        search_request: ItemWithRunesSearchRequest
+    ) -> list[ItemOutputData]:
         runes_info = self._get_runes_info(item_type_data)
         return [_get_random_item_with_runes(runes_info, search_request) for _ in range(item_type_data.amount)]
 
@@ -204,15 +205,15 @@ class SearchService:
 
 def _get_random_item_with_runes(runes_info: RunesInfo, search_request: ItemWithRunesSearchRequest) -> ItemOutputData:
     item_potency_rune = _get_random_item(runes_info.item_potency_level_to_item, search_request.level_request)
-    potency_rank = int(
-        _get_item_potency_by_name(item_potency_rune.name)) if item_potency_rune is not None else 0
+    potency_rank = int(_get_item_potency_by_name(item_potency_rune.name)) if item_potency_rune is not None else 0
     item_strength_rune = _get_random_item(runes_info.item_strength_level_to_item, search_request.level_request)
 
     item_property_runes_i = [
         rune for _ in range(random.randrange(0, potency_rank + 1))
         if
-        (rune := _get_random_item(runes_info.item_property_runes_level_to_items,
-                                  search_request.level_request)) is not None
+        (rune := _get_random_item(
+                    runes_info.item_property_runes_level_to_items,
+                    search_request.level_request)) is not None
     ]
 
     weapon_with_runes = _ItemWithRunes(
@@ -231,7 +232,10 @@ def _get_random_item_with_runes(runes_info: RunesInfo, search_request: ItemWithR
     )
 
 
-def _get_random_item(items_by_level: dict[int, list[AonItemJson]], level_request: LevelRequest) -> AonItemJson | None:
+def _get_random_item(
+    items_by_level: dict[int, list[AonItemJson]],
+    level_request: LevelRequest
+) -> AonItemJson | None:
     level_to_weight = level_request.weights.copy()
     for weight in level_request.weights:
         if weight not in items_by_level:
@@ -247,8 +251,10 @@ def _get_random_item(items_by_level: dict[int, list[AonItemJson]], level_request
     return random.choice(items_to_choose) if len(items_to_choose) > 0 else None
 
 
-def _choose_items_by_level_and_rarity(items: list[AonItemJson], search_request: EquipmentSearchRequest) -> list[
-    AonItemJson]:
+def _choose_items_by_level_and_rarity(
+    items: list[AonItemJson],
+    search_request: EquipmentSearchRequest
+) -> list[AonItemJson]:
     items_by_rarity_by_level: dict[str, dict[int, list[AonItemJson]]] = defaultdict(lambda: defaultdict(list))
 
     for item in items:
@@ -283,6 +289,7 @@ def _get_cost_in_cp(price: str) -> int:
         'sp': 10,
         'gp': 100
     }
+
     # Format: '100 gp, 10 sp, 1 cp' or '100 gp', etc
     if price == '':
         return 0
