@@ -1,4 +1,6 @@
 import random
+import re
+from abc import abstractmethod, ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -103,6 +105,7 @@ class _ItemWithRunes:
     def get_name(self) -> str:
         return f'{self.get_potency_modifier_str()}{self.get_strength_modifier_str()}{self.get_property_runes_str()}{self.item.name}'
 
+
 @dataclass(frozen=True)
 class RunesInfo:
     item_potency_level_to_item: dict[int, list[AonItemJson]]
@@ -112,12 +115,54 @@ class RunesInfo:
     item_type_data: ItemTypeData
 
 
+class ISearchService(ABC):
+    @abstractmethod
+    def get_random_items_by_request(self, general_search_request: GeneralSearchRequest) -> list[ItemOutputData]:
+        pass
+
+
+def _to_item_output_data(item: AonItemJson) -> ItemOutputData:
+    return ItemOutputData(
+        name=item.name,
+        rarity=item.rarity,
+        level=item.level,
+        price_raw=item.price_raw,
+        url=item.url
+    )
+
+
+def _parse_aon_price(aon_item_json: AonItemJson) -> str:
+    if aon_item_json.price_raw != '':
+        return aon_item_json.price_raw
+
+    regex = r"\*\*Price\*\* (\d+ gp)(?: (\d+sp))?(?: (\d+cp))?"
+    match = re.search(regex, aon_item_json.markdown)
+    if match:
+        if 'Greater' in aon_item_json.name:
+            return match.group(1)
+        elif 'Major' in aon_item_json.name:
+            return match.group(2)
+        else:
+            return match.group(0)
+
+    return ''
+
+
+def _fix_aon_price(items: list[ItemOutputData]) -> None:
+    for item in items:
+        if isinstance(item, AonItemJson):
+            price = _parse_aon_price(item)
+            if 'Price' in price:
+                price = ' '.join(price.split(' ')[1:])
+            item.price_raw = price
+
+
 @dataclass(frozen=True)
-class SearchService:
+class AonSearchService(ISearchService):
     aon_item_loader: AonItemLoader
     sources: list[str]
 
-    def get_random_items_by_request(self, general_search_request: GeneralSearchRequest):
+    def get_random_items_by_request(self, general_search_request: GeneralSearchRequest) -> list[ItemOutputData]:
         result = []
         if general_search_request.equipment_search_request is not None:
             result.extend(self._get_random_equipment(general_search_request.equipment_search_request))
@@ -128,9 +173,10 @@ class SearchService:
             result.extend(
                 self._generate_armor_runes_based_on_request(general_search_request.item_with_runes_search_request))
 
+        _fix_aon_price(result)
         return result
 
-    def _get_random_equipment(self, search_request: EquipmentSearchRequest) -> list[AonItemJson]:
+    def _get_random_equipment(self, search_request: EquipmentSearchRequest) -> list[ItemOutputData]:
         equipment = self.aon_item_loader.load_items_by_categories(search_request.traits.categories)
         items = [item for item in equipment if _any_from_list_is_in_list(item.source, self.sources)]
         items = [item for item in items if
@@ -142,20 +188,22 @@ class SearchService:
         for item in items:
             item.url = f"https://2e.aonprd.com{item.url}"
 
-        return _choose_items_by_level_and_rarity(items, search_request)
+        items = _choose_items_by_level_and_rarity(items, search_request)
+        return [_to_item_output_data(item) for item in items]
 
     def _get_runes_info(self, item_type_data: ItemTypeData) -> RunesInfo:
         equipment = self.aon_item_loader.load_items_by_category('equipment')
         weapons = self.aon_item_loader.load_items_by_category(item_type_data.potency_name.lower())
 
-        potency_postfixes = [ f'{item_type_data.potency_name} Potency (+{i})' for i in range(1, 4) ]
+        potency_postfixes = [f'{item_type_data.potency_name} Potency (+{i})' for i in range(1, 4)]
 
-        get_striking_name_by_rank = lambda postfix: f'{item_type_data.strength_name}{ f' ({postfix})' if postfix is not None else '' }'
+        get_striking_name_by_rank = lambda \
+            postfix: f'{item_type_data.strength_name}{f' ({postfix})' if postfix is not None else ''}'
         rank_postfix = [None, 'Greater', 'Major']
         strength_postfixes = list(map(get_striking_name_by_rank, rank_postfix))
 
-        item_potency = [ next(filter(lambda item: item.name == postfix, equipment)) for postfix in potency_postfixes ]
-        item_strength = [ next(filter(lambda item: item.name == postfix, equipment)) for postfix in strength_postfixes ]
+        item_potency = [next(filter(lambda item: item.name == postfix, equipment)) for postfix in potency_postfixes]
+        item_strength = [next(filter(lambda item: item.name == postfix, equipment)) for postfix in strength_postfixes]
 
         item_potency_level_to_item: dict[int, list[AonItemJson]] = {0: []}
         for item in item_potency:
@@ -190,13 +238,15 @@ class SearchService:
         runes_info = self._get_runes_info(item_type_data)
         return [_get_random_item_with_runes(runes_info, search_request) for _ in range(item_type_data.amount)]
 
-    def _generate_armor_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[ItemOutputData]:
+    def _generate_armor_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[
+        ItemOutputData]:
         return self._generate_items_with_runes(
             ItemTypeData('Armor', 'Resilient', search_request.armor),
             search_request
         )
 
-    def _generate_weapon_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[ItemOutputData]:
+    def _generate_weapon_runes_based_on_request(self, search_request: ItemWithRunesSearchRequest) -> list[
+        ItemOutputData]:
         return self._generate_items_with_runes(
             ItemTypeData('Weapon', 'Striking', search_request.weapons),
             search_request
@@ -212,8 +262,8 @@ def _get_random_item_with_runes(runes_info: RunesInfo, search_request: ItemWithR
         rune for _ in range(random.randrange(0, potency_rank + 1))
         if
         (rune := _get_random_item(
-                    runes_info.item_property_runes_level_to_items,
-                    search_request.level_request)) is not None
+            runes_info.item_property_runes_level_to_items,
+            search_request.level_request)) is not None
     ]
 
     weapon_with_runes = _ItemWithRunes(

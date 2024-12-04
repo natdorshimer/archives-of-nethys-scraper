@@ -16,6 +16,7 @@ class AonItemJson:
     price_raw: str = ''
     source: list[str] = field(default_factory=list)
     trait: list[str] = field(default_factory=list)
+    markdown: str = ''
     item_subcategory: str = ''
 
     def __hash__(self) -> int:
@@ -46,7 +47,6 @@ class LocalFileAonItemLoader(AonItemLoader):
         except FileNotFoundError as e:
             print("File not found - AON data is likely not scraped. Run scrape_aon.py")
             raise e
-
 
 
 def load_items_by_category(category: str) -> list[AonItemJson]:

@@ -5,11 +5,10 @@ from enum import Enum
 
 import pandas as pd
 
-from aon_item_loader import AonItemJson, LocalFileAonItemLoader
+from aon_item_loader import LocalFileAonItemLoader
 from search_service import TraitRequest, RarityRequest, EquipmentSearchRequest, LevelRequest, \
-    ItemWithRunesSearchRequest, SearchService, GeneralSearchRequest
+    ItemWithRunesSearchRequest, AonSearchService, GeneralSearchRequest, ISearchService, ItemOutputData
 
-DEFAULT_DECAY = 0.5
 
 def main():
     shop_request = parse_args()
@@ -26,10 +25,19 @@ def main():
         "Grand Bazaar"
     ]
 
-    search_service = SearchService(LocalFileAonItemLoader(), sources)
+    search_service: ISearchService = AonSearchService(LocalFileAonItemLoader(), sources)
     search_request = create_search_request(shop_request)
     items = search_service.get_random_items_by_request(search_request)
-    print(_display_as_table_str(items))
+
+    fields = ['name', 'rarity', 'level', 'source', 'price_raw', 'url']
+
+    if shop_request.html:
+        print(_to_html_table_str(items, fields))
+
+    print(_display_as_table_str(items, fields))
+
+    if shop_request.create_shopkeeper:
+        print(create_zany_shopkeeper(items))
 
 
 class ShopType(Enum):
@@ -60,7 +68,7 @@ class ItemWithRunesShopInfo:
 class Shop:
     equipment_shop_info: EquipmentShopInfo | None = None
     item_with_runes_shop_info: ItemWithRunesShopInfo | None = None
-    decay: float = DEFAULT_DECAY
+    decay: float = 0.5
 
     def has_items_with_runes(self) -> bool:
         return self.item_with_runes_shop_info is not None
@@ -79,11 +87,11 @@ shop_by_shop_type = {
         equipment_shop_info=EquipmentShopInfo(
             traits_by_shop_type=TraitRequest(required_traits=['Magical'], exclude_traits=['Consumable', 'Tattoo']),
         ),
-        decay = 0.2
+        decay=0.2
     ),
     ShopType.POISON: Shop(
         equipment_shop_info=EquipmentShopInfo(
-            traits_by_shop_type=TraitRequest(required_traits=['Poison', 'Consumable'])
+            traits_by_shop_type=TraitRequest(required_traits=['Poison'])
         )
     ),
     ShopType.WEAPON: Shop(
@@ -118,6 +126,8 @@ class ShopRequest:
     rarity_request: RarityRequest
     number: int
     decay: float | None
+    html: bool = False
+    create_shopkeeper: bool = False
 
 
 traits_by_shop_type: dict[ShopType, TraitRequest] = {
@@ -146,6 +156,10 @@ def parse_args() -> ShopRequest:
     parser.add_argument('--unique', type=int, help='Number of unique items', default=0)
     parser.add_argument('--decay', type=float, help='Decay for item level', default=None)
     parser.add_argument('--number', type=int, help='Number of items for weapons and armor', default=10)
+
+    parser.add_argument('--no_html', help='Disable html output', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--shopkeeper', help='Create a zany shopkeeper', action=argparse.BooleanOptionalAction)
+
     args = parser.parse_args()
 
     return ShopRequest(
@@ -158,7 +172,9 @@ def parse_args() -> ShopRequest:
             rare_number=args.rare,
             unique_number=args.unique
         ),
-        decay=args.decay
+        decay=args.decay,
+        html=not args.no_html,
+        create_shopkeeper=args.shopkeeper
     )
 
 
@@ -189,8 +205,7 @@ def create_search_request(shop_request: ShopRequest) -> GeneralSearchRequest:
     return GeneralSearchRequest(equipment_search_request, item_with_runes_search_request)
 
 
-def _display_as_table_str(items: list[AonItemJson]):
-    fields = ['name', 'rarity', 'level', 'source', 'price_raw', 'url']
+def _display_as_table_str(items: list[ItemOutputData], fields: list[str]) -> str:
     return _to_table_str(items, fields)
 
 
@@ -208,10 +223,68 @@ def _generate_shop_item_weights(shop_level, max_level=30, decay=0.5) -> dict[int
     return weights
 
 
-def _to_table_str(items: list[AonItemJson], keys: list[str]) -> str:
+def create_zany_shopkeeper(aon_items: list[ItemOutputData]) -> str:
+    import json
+    json_str = json.dumps([item.__dict__ for item in aon_items])
+
+    from openai import OpenAI
+    client = OpenAI(
+        # Defaults to os.environ.get("OPENAI_API_KEY")
+    )
+
+    message = "Create 3 zany shopkeepers who may sell the following items. Items are in json format. Just tell me their names, ancestry, personalities, and character quirks, as well as why they might have these items.:\n\n" + json_str
+    chat_completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": message}]
+    )
+
+    return chat_completion.choices[0].message.content
+
+
+def _to_table_str(items: list[ItemOutputData], keys: list[str]) -> str:
     data = [{key: getattr(item, key, "") for key in keys} for item in items]
     df = pd.DataFrame(data, columns=keys)
     return df.to_string(index=False)
+
+
+def _to_html_table_str(items: list[ItemOutputData], keys: list[str]) -> str:
+    # Create the opening HTML table tag
+    html = ['<table border="1">', '<thead><tr>']
+
+    use_linked_name = False
+
+    keys = keys.copy()
+    if 'name' in keys and 'url' in keys:
+        use_linked_name = True
+        keys.remove('url')
+        keys.remove('name')
+
+    # Create the table header row
+    if use_linked_name:
+        html.append('<th>Name</th>')
+
+    for key in keys:
+        html.append(f'<th>{key.capitalize()}</th>')
+
+    html.append('</tr></thead>')
+
+    # Create the table body with rows for each item
+    html.append('<tbody>')
+    for item in items:
+        row = '<tr>'
+        if use_linked_name:
+            row += f'<td><a href="{item.url}">{item.name}</a></td>'
+        for key in keys:
+            value = getattr(item, key, '')  # Get attribute value or empty string if missing
+            row += f'<td>{value}</td>'
+        row += '</tr>'
+        html.append(row)
+    html.append('</tbody>')
+
+    # Close the HTML table tag
+    html.append('</table>')
+
+    return ''.join(html)
 
 
 if __name__ == '__main__':
