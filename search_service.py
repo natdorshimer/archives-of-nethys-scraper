@@ -189,7 +189,7 @@ class AonSearchService(ISearchService):
             item.url = f"https://2e.aonprd.com{item.url}"
 
         items = _choose_items_by_level_and_rarity(items, search_request)
-        return [_to_item_output_data(item) for item in items]
+        return [_to_item_output_data(item) for item in items if item is not None]
 
     def _get_runes_info(self, item_type_data: ItemTypeData) -> RunesInfo:
         equipment = self.aon_item_loader.load_items_by_category('equipment')
