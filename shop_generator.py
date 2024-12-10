@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 import pandas as pd
-from bs4 import BeautifulSoup
-from bs4.formatter import Formatter
 
 from aon_item_loader import LocalFileAonItemLoader
 from search_service import TraitRequest, RarityRequest, EquipmentSearchRequest, LevelRequest, \
@@ -286,8 +284,7 @@ def _to_html_table_str(items: list[ItemOutputData], keys: list[str]) -> str:
     # Close the HTML table tag
     html.append('</table>')
 
-    html_str = ''.join(html)
-    return BeautifulSoup(html_str, 'html.parser').prettify(formatter=Formatter(indent=4))
+    return ''.join(html)
 
 
 if __name__ == '__main__':

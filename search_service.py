@@ -3,17 +3,19 @@ import re
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Callable
 
 from aon_item_loader import AonItemJson, AonItemLoader
 
 
-@dataclass(frozen=True)
+@dataclass
 class ItemOutputData:
     name: str
     rarity: str
     level: int
     price_raw: str
     url: str = ''
+    markdown: str | None = None
 
 
 @dataclass(frozen=True)
@@ -127,34 +129,50 @@ def _to_item_output_data(item: AonItemJson) -> ItemOutputData:
         rarity=item.rarity,
         level=item.level,
         price_raw=item.price_raw,
-        url=item.url
+        url=item.url,
+        markdown=item.markdown
     )
 
 
-def _parse_aon_price(aon_item_json: AonItemJson) -> str:
+def _find_names_in_markdown(markdown: str) -> list[str]:
+    markdown = markdown.replace('\n', '')
+    markdown = markdown.replace('\r', '')
+    regex = r'<title[\s\S]*?right="Item\s\d+"[\s\S]*?>(.*?)<\/title>'
+    match = re.search(regex, markdown)
+    if match is None:
+        return []
+    return list(map(str.strip, match.groups()))
+
+
+def _parse_aon_price(aon_item_json: ItemOutputData) -> str:
     if aon_item_json.price_raw != '':
         return aon_item_json.price_raw
 
     regex = r"\*\*Price\*\* (\d+ gp)(?: (\d+sp))?(?: (\d+cp))?"
     match = re.search(regex, aon_item_json.markdown)
-    if match:
-        if 'Greater' in aon_item_json.name:
-            return match.group(1)
-        elif 'Major' in aon_item_json.name:
-            return match.group(2)
-        else:
-            return match.group(0)
+    if match is None:
+        return ''
 
-    return ''
+    markdown_names = _find_names_in_markdown(aon_item_json.markdown)
+
+    for i in range(len(markdown_names)):
+        if markdown_names[i] in aon_item_json.name:
+            return match.group(i)
+
+    return match.group(0)
 
 
 def _fix_aon_price(items: list[ItemOutputData]) -> None:
     for item in items:
-        if isinstance(item, AonItemJson):
+        if item.markdown is not None:
             price = _parse_aon_price(item)
             if 'Price' in price:
                 price = ' '.join(price.split(' ')[1:])
             item.price_raw = price
+
+
+def first(flter: Callable[[any], bool], iterable: list[any]) -> any:
+    return next(item for item in iterable if flter(item))
 
 
 @dataclass(frozen=True)
@@ -202,8 +220,9 @@ class AonSearchService(ISearchService):
         rank_postfix = [None, 'Greater', 'Major']
         strength_postfixes = list(map(get_striking_name_by_rank, rank_postfix))
 
-        item_potency = [next(filter(lambda item: item.name == postfix, equipment)) for postfix in potency_postfixes]
-        item_strength = [next(filter(lambda item: item.name == postfix, equipment)) for postfix in strength_postfixes]
+
+        item_potency = [first(lambda item: item.name == postfix, equipment) for postfix in potency_postfixes]
+        item_strength = [first(lambda item: item.name == postfix, equipment) for postfix in strength_postfixes]
 
         item_potency_level_to_item: dict[int, list[AonItemJson]] = {0: []}
         for item in item_potency:
